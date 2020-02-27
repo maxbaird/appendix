@@ -117,7 +117,7 @@ int main(int argc, char *argv[]){
   float milliseconds = 0;
   cudaEventElapsedTime(&milliseconds, knl_start, knl_stop);
 
-  fprintf(stdout, "%d kernel = %f\n", processes, milliseconds);
+  fprintf(stdout, "%d kernel = %fms\n", processes, milliseconds);
 
   for(j = 0; j < vector_size; j++){
     local_sum = local_sum + h_c[j];
@@ -131,7 +131,7 @@ int main(int argc, char *argv[]){
       global_sum = global_sum + local_sum;
     }
 
-    if((2 * vector_size * processes /** iterations*/) == global_sum){
+    if((2 * vector_size * processes) == global_sum){
       fprintf(stdout, "Result: Pass\n");
     }
     else{
@@ -149,8 +149,6 @@ int main(int argc, char *argv[]){
   free(h_b);
   free(h_c);
   
-  fflush(stdout);
-
   CUDA_ERROR_CHECK(cudaFree((void *)d_a));
   CUDA_ERROR_CHECK(cudaFree((void *)d_b));
   CUDA_ERROR_CHECK(cudaFree((void *)d_c));
@@ -163,7 +161,7 @@ int main(int argc, char *argv[]){
   MPI_Finalize();
 
   if(rank == MASTER){
-    fprintf(stdout, "Runtime = %f\n", end - start);
+    fprintf(stdout, "Runtime = %f secs\n", end - start);
   }
 
   return EXIT_SUCCESS;

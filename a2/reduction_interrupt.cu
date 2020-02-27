@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
+#include <unistd.h>
 
 #define NUM_ELEMENTS 1<<30
 #define BLOCK_SIZE 1024
@@ -100,6 +101,7 @@ int main(){
 
   //////////////////////////////////////////
   volatile bool *timeout = NULL;
+  bool complete = false;
   bool *executedBlocks = NULL;
 
   cudaMallocManaged((void **)&timeout, sizeof(volatile bool), cudaMemAttachGlobal);
@@ -115,8 +117,21 @@ int main(){
 
   //reduce<<<grid_size, BLOCK_SIZE, BLOCK_SIZE*sizeof(int)>>>(deviceInput, deviceOutput);
 
-  while(*timeout == false){
+  while(!complete){
     reduce<<<grid_size, BLOCK_SIZE, BLOCK_SIZE*sizeof(int)>>>(timeout, executedBlocks, deviceInput, deviceOutput);
+
+    usleep(0.0001);
+    *timeout = true;
+    CUDA_ERROR_CHECK(cudaDeviceSynchronize());
+
+    /* Check if kernel is complete */
+    for(size_t i = 0; i < grid_size; i++){
+      if(executedBlocks[i] == false){
+       break;
+      } 
+    }
+
+    complete = i == grid_size;
   }
 
   CUDA_ERROR_CHECK(cudaMemcpy(hostOutput, deviceOutput, output_size, cudaMemcpyDeviceToHost));
