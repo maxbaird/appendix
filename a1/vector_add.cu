@@ -23,7 +23,7 @@ do{                                                                   \
   }                                                                   \
 }while(0);
 
-#define ITERATIONS 1e5
+#define ITERATIONS 100000 //100K iterations
 
 __global__ void 
 vector_add(const unsigned short int *a, 
