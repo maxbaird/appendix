@@ -4,16 +4,17 @@
 #include <string.h>
 #include <unistd.h>
 
-#define NUM_ELEMENTS 1<<30
+#define NUM_ELEMENTS 1<<20
 #define BLOCK_SIZE 1024
 
-#define CUDA_ERROR_CHECK(fun)                                        \
-do{                                                                  \
-    cudaError_t err = fun;                                           \
-    if(err != cudaSuccess){                                          \
-      fprintf(stderr, "Cuda error:: %s\n", cudaGetErrorString(err)); \
-      exit(EXIT_FAILURE);                                            \
-    }                                                                \
+#define CUDA_ERROR_CHECK(fun)                                                           \
+do{                                                                                     \
+    cudaError_t err = fun;                                                              \
+    if(err != cudaSuccess){                                                             \
+      fprintf(stderr, "Cuda error line %d :: %s\n", __LINE__, cudaGetErrorString(err)); \
+      fflush(stderr);                                                                   \
+      exit(EXIT_FAILURE);                                                               \
+    }                                                                                   \
 }while(0);
 
 __global__ void reduce(volatile bool *timeout, bool *executedBlocks, int *input, int *output) {
@@ -30,12 +31,12 @@ __global__ void reduce(volatile bool *timeout, bool *executedBlocks, int *input,
   }
 
   /* Return if block was previously executed */
-  if(is_block_executed[bid]){
+  if(executedBlocks[bid]){
     return;
   }
 
   /* Preventy any warps from proceeding until timeout is copied */
-  __syncthreads()
+  __syncthreads();
 
   /* Return if block_timeout is true */
   if(block_timeout){
@@ -43,7 +44,7 @@ __global__ void reduce(volatile bool *timeout, bool *executedBlocks, int *input,
   }
 
   /* Mark block as executed */
-  is_block_executed[bid] = true;
+  executedBlocks[bid] = true;
 
   extern __shared__ int sdata[];
   unsigned int tid = threadIdx.x;
@@ -99,7 +100,6 @@ int main(){
       hostInput[i] = 1;
   }
 
-  //////////////////////////////////////////
   volatile bool *timeout = NULL;
   bool complete = false;
   bool *executedBlocks = NULL;
@@ -110,29 +110,33 @@ int main(){
   memset(executedBlocks, 0, grid_size * sizeof(bool));
 
   *timeout = false;
-
-  //////////////////////////////////////////
+  size_t interrupt_count = 0;
 
   CUDA_ERROR_CHECK(cudaMemcpy(deviceInput, hostInput, input_size, cudaMemcpyHostToDevice));
-
-  //reduce<<<grid_size, BLOCK_SIZE, BLOCK_SIZE*sizeof(int)>>>(deviceInput, deviceOutput);
 
   while(!complete){
     reduce<<<grid_size, BLOCK_SIZE, BLOCK_SIZE*sizeof(int)>>>(timeout, executedBlocks, deviceInput, deviceOutput);
 
-    usleep(0.0001);
+    usleep(0.001);
     *timeout = true;
     CUDA_ERROR_CHECK(cudaDeviceSynchronize());
 
     /* Check if kernel is complete */
-    for(size_t i = 0; i < grid_size; i++){
+    size_t i = 0;
+    for(i = 0; i < grid_size; i++){
       if(executedBlocks[i] == false){
        break;
       } 
     }
+    interrupt_count++;
 
-    complete = i == grid_size;
+    if(i == grid_size){
+      complete = true;
+    }else{
+      *timeout = false;
+    }
   }
+  fprintf(stdout, "Interrupt count: %zu\n", interrupt_count);
 
   CUDA_ERROR_CHECK(cudaMemcpy(hostOutput, deviceOutput, output_size, cudaMemcpyDeviceToHost));
 
@@ -141,15 +145,22 @@ int main(){
   }
 
   fprintf(stdout, "Sum = %d\n", hostOutput[0]);
+  fprintf(stdout, "Result: "); 
+
+  if(hostOutput[0] == NUM_ELEMENTS){
+    fprintf(stdout, "PASS\n");
+  }else{
+    fprintf(stderr, "FAIL\n");
+  }
 
   free(hostInput);
   free(hostOutput);
 
   CUDA_ERROR_CHECK(cudaFree(deviceInput));
   CUDA_ERROR_CHECK(cudaFree(deviceOutput));
+  CUDA_ERROR_CHECK(cudaFree(executedBlocks));
+  CUDA_ERROR_CHECK(cudaFree((void *)timeout));
+
   CUDA_ERROR_CHECK(cudaDeviceReset());
-
-  cudaFree(executedBlocks);
-
   return EXIT_SUCCESS;
 }
