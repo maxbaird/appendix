@@ -7,15 +7,13 @@
 #define NUM_ELEMENTS 1<<20
 #define BLOCK_SIZE 1024
 
-#define CUDA_ERROR_CHECK(fun)                                                           \
-do{                                                                                     \
-    cudaError_t err = fun;                                                              \
-    if(err != cudaSuccess){                                                             \
-      fprintf(stderr, "Cuda error line %d :: %s\n", __LINE__, cudaGetErrorString(err)); \
-      fflush(stderr);                                                                   \
-      exit(EXIT_FAILURE);                                                               \
-    }                                                                                   \
-}while(0);
+#define CUDA_ERROR_CHECK(func) { gpuAssert((func), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true){
+   if (code != cudaSuccess) {
+      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      if (abort) exit(code);
+   }
+}
 
 __global__ void reduce(volatile bool *timeout, bool *executedBlocks, int *input, int *output) {
 
@@ -116,6 +114,7 @@ int main(){
 
   while(!complete){
     reduce<<<grid_size, BLOCK_SIZE, BLOCK_SIZE*sizeof(int)>>>(timeout, executedBlocks, deviceInput, deviceOutput);
+    CUDA_ERROR_CHECK(cudaPeekAtLastError());
 
     usleep(0.001);
     *timeout = true;
@@ -144,7 +143,6 @@ int main(){
     hostOutput[0] += hostOutput[i];
   }
 
-  fprintf(stdout, "Sum = %d\n", hostOutput[0]);
   fprintf(stdout, "Result: "); 
 
   if(hostOutput[0] == NUM_ELEMENTS){
@@ -152,6 +150,8 @@ int main(){
   }else{
     fprintf(stderr, "FAIL\n");
   }
+
+  fprintf(stdout, "Sum = %d\n", hostOutput[0]);
 
   free(hostInput);
   free(hostOutput);
