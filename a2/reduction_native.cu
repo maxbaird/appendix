@@ -5,14 +5,13 @@
 #define NUM_ELEMENTS 1<<30
 #define BLOCK_SIZE 1024
 
-#define CUDA_ERROR_CHECK(fun)                                        \
-do{                                                                  \
-    cudaError_t err = fun;                                           \
-    if(err != cudaSuccess){                                          \
-      fprintf(stderr, "Cuda error:: %s\n", cudaGetErrorString(err)); \
-      exit(EXIT_FAILURE);                                            \
-    }                                                                \
-}while(0);
+#define CUDA_ERROR_CHECK(func) { gpuAssert((func), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true){
+   if (code != cudaSuccess) {
+      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      if (abort) exit(code);
+   }
+}
 
 __global__ void reduce(int *input, int *output) {
   extern __shared__ int sdata[];
@@ -64,19 +63,29 @@ int main(){
   CUDA_ERROR_CHECK(cudaMalloc((void **)&deviceOutput, output_size));
 
   size_t i = 0;
+  int host_sum = 0;
 
   for(i = 0; i < elems; i++){
       hostInput[i] = 1;
+      host_sum += hostInput[i]; //Used later to verify GPU result
   }
 
   CUDA_ERROR_CHECK(cudaMemcpy(deviceInput, hostInput, input_size, cudaMemcpyHostToDevice));
 
   reduce<<<grid_size, BLOCK_SIZE, BLOCK_SIZE*sizeof(int)>>>(deviceInput, deviceOutput);
+  CUDA_ERROR_CHECK(cudaPeekAtLastError());
 
   CUDA_ERROR_CHECK(cudaMemcpy(hostOutput, deviceOutput, output_size, cudaMemcpyDeviceToHost));
 
   for(i = 1; i < grid_size; i++){
     hostOutput[0] += hostOutput[i];
+  }
+
+  fprintf(stdout, "Result: ");
+  if(host_sum == hostOutput[0]){
+    fprintf(stdout, "PASS\n");
+  }else{
+    fprintf(stdout, "FAIL\n");
   }
 
   fprintf(stdout, "Sum = %d\n", hostOutput[0]);
